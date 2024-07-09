@@ -35,7 +35,6 @@ const String LAMP_ID = "ts'u$squh!! |hqw#uh}q'!hswwu'qwt'tv"; //IVET - 1dc0bcde-
 const int LEDCount = 15;
 
 Adafruit_NeoPixel strip(LEDCount, D2, NEO_GRB + NEO_KHZ800);
-Adafruit_NeoPixel statusLed(1, D3, NEO_GRB + NEO_KHZ800);
 
 const char ENDPOINT_CA_CERT[] PROGMEM = R"EOF(
 -----BEGIN CERTIFICATE-----
@@ -117,6 +116,7 @@ int steps = 200;
 int pressTime = 0;
 bool req = false;
 bool activeSession = false;
+bool isIPonline = false;
 bool interuptFlag = false;
 bool requestAmbientFlag = false;
 long cntr;
@@ -156,7 +156,6 @@ String readPassword();
 int readMode();
 int readBrightness();
 void changeMode(int mode);
-void setStatusLed(int r, int g, int b);
 void checkButton();
 void smoothGradient(Color beginX, Color beginY, Color endX, Color endY, int steps, int duration);
 Color getClrFromStr(String str);
@@ -174,12 +173,15 @@ WiFiClient mqttespClient;
 PubSubClient mqttclient(mqttespClient);
 
 void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
+      messageFromAPI = (char *)payload;
+      Serial.println("----");
+      Serial.println(messageFromAPI);
+      Serial.println(type);
   switch (type) {
     case WStype_DISCONNECTED:
       Serial.printf("[WSc] Disconnected!\n");
       WebSerial.printf("[WSc] Disconnected!\n");
       if (readMode() == 1) {
-        setStatusLed(255, 0, 0);
         nightRider.attach_ms(200, advanceNightRider);
       }
       activeSession = false;
@@ -196,20 +198,14 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
         
         messageFromAPI = (char *)payload;
         webSocket.loop();
-        if (messageFromAPI.equals("Connection established")) { activeSession = true; }
+        if (messageFromAPI.equals("Connection established")) { 
+          activeSession = true; 
+          isIPonline = true;
+          }
 
         if (messageFromAPI == "") { return; }
         
         processAPIMessage();
-        /*Serial.println(messageFromAPI);
-        WebSerial.println(messageFromAPI);
-        while (!procesData(messageFromAPI)) {
-          Serial.println("Could not show, looping");
-          WebSerial.println("Could not show, looping");
-        }
-        messageFromAPI = "";*/
-        // send message to server
-        // webSocket.sendTXT("message here");
         break;
       }
     case WStype_BIN:
@@ -220,6 +216,9 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
       // send data to server
       // webSocket.sendBIN(payload, length);
       break;
+    case WStype_ERROR:
+      messageFromAPI = (char *)payload;
+      Serial.println(messageFromAPI);
   }
 }
 
@@ -255,11 +254,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
     message = (char *)data;
     //nastavení příznaku na true
     req = true;
-    //seznam API
-    //ip api https://api.ipify.org
-    //loc api https://ipapi.co/latlong
-    //weather api https://api.tomorrow.io/v4/timelines?location=49.403100,15.592400&fields=temperature&timesteps=1d&units=metric&apikey=QPogenzy0SYMfu4yF6zWcnPRRw0kicAC
-  }
+    }
 }
 
 
@@ -332,15 +327,12 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Initial Memory:");
   Serial.println(ESP.getFreeHeap(), DEC);
-  statusLed.begin();
-  statusLed.setBrightness(255);
-  statusLed.show();
   strip.begin();
   strip.setBrightness(255);
   strip.show();
   pinMode(D1, INPUT);
   attachInterrupt(digitalPinToInterrupt(D1), checkButton, CHANGE);
-  nightRiderColor = {0,255,0};
+  nightRiderColor = {0,0,0};
   nightRider.attach_ms(200, advanceNightRider);
   delay(100);
   EEPROM.begin(EEPROM_SIZE);
@@ -349,7 +341,8 @@ void setup() {
   WiFi.setPhyMode(WIFI_PHY_MODE_11B);
   APISource = (enum APISources)readAPIDataSource();
   if (readWiFiMode()) {
-    setStatusLed(0, 255, 0);
+    //fill(0,255,0);
+    nightRiderColor = {0,255,0};
     WiFi.begin(readSSID(), readPassword());
     Serial.println("ssid:" + readSSID() + ", passwd:" + readPassword() + ",");
     while ((int)millis() < 60 * 1000) {
@@ -376,14 +369,16 @@ void setup() {
     else {
       APISource = OFF;
       WiFi.softAP("ForestGlow", "12345678");
-      setStatusLed(0, 0, 255);
+      //fill(0,0,255);
+      nightRiderColor = {0,0,255};
     }
   }
 
   else {  //Standalone mode
     APISource = OFF;
     WiFi.softAP("ForestGlow", "12345678");
-    setStatusLed(0, 0, 255);
+    //fill(0,0,255);
+    nightRiderColor = {0,0,255};
   }
 
   Serial.println(WiFi.localIP());
@@ -399,20 +394,21 @@ void setup() {
 
   pinMode(D5, INPUT);
 
-  delay(2000);
-  setStatusLed(0, 0, 0);
-  delay(500);
+  delay(1000);
+  nightRider.detach();
+  fill(0, 0, 0);
+  delay(1000);
   switch (APISource) {
     case 0:
       {
         setupWS("forestcraft.cz");
-        setStatusLed(255, 255, 255);
+        fill(255, 255, 255);
         break;
       }
     case 1:
       {
         setupWS(readURL());
-        setStatusLed(0, 255, 0);
+        fill(0, 255, 0);
         break;
       }
     case 2:
@@ -420,13 +416,13 @@ void setup() {
         String url = readURL();
         mqttclient.setServer(url.c_str(), 1883);
         mqttclient.setCallback(callback);
-        setStatusLed(0, 0, 255);
+        fill(0, 0, 255);
         mqttReconnect();       
         break;
       }
     case 3:
       {
-        setStatusLed(255, 0, 0);
+        fill(255, 0, 0);
         break;
       }
     default:
@@ -436,8 +432,8 @@ void setup() {
       }
   }
   delay(2000);
-  setStatusLed(0, 0, 0);
-  delay(500);
+  fill(0, 0, 0);
+  //delay(500);
 
 
   changeMode(readMode());
@@ -446,7 +442,7 @@ void setup() {
   WebSerial.println("Setup end memory:");
   WebSerial.println(ESP.getFreeHeap(), DEC);
   nightRider.detach();
-  nightRiderColor = {255,0,0};
+  //nightRiderColor = {255,0,0};
 }
 
 
@@ -496,16 +492,16 @@ void setBrightness() {
         int sunsetTime = getSunsetTime();
         int sunriseTime = getSunriseTime();
         strip.setBrightness(255);
-        statusLed.setBrightness(255);       
+             
         if(sunsetTime < currentTime) {
           
           strip.setBrightness(64);
-          statusLed.setBrightness(64);       
+              
         }
         if(sunriseTime < currentTime) {
          
           strip.setBrightness(255);
-          statusLed.setBrightness(255);       
+               
         }
 
         break;
@@ -517,42 +513,39 @@ void setBrightness() {
 
         int convertedTime = getCurrentTime();
           strip.setBrightness(255);
-          statusLed.setBrightness(255);       
+                
         if(timeToLower < convertedTime) {
           
           strip.setBrightness(64);
-          statusLed.setBrightness(64);       
+             
         }
         if(timeToHigher < convertedTime) {
          
           strip.setBrightness(255);
-          statusLed.setBrightness(255);       
+            
         }
     
         break;
       }  // custom time
     case 2:
       {
-        strip.setBrightness(getBrightnessFromSensor());
-        statusLed.setBrightness(getBrightnessFromSensor());
-        Serial.println("Brightness:" + String(getBrightnessFromSensor()));
-        Serial.println("BrightnessData:" + String(analogRead(A0)));
+        strip.setBrightness(readBrightnessToggle() ? 255:128);
         break;
       }  //sensor
     case 3:
       {
         strip.setBrightness(readManualBrighness());
-        statusLed.setBrightness(readManualBrighness());
+       
         break;
       }  //manual
     default:
       {
         strip.setBrightness(255);
-        statusLed.setBrightness(255);
+        
       }
   }
   strip.show();
-  statusLed.show();
+
   //
 }
 
@@ -698,7 +691,6 @@ void loop() {
   }
 
   if (webSocket.isConnected() && readMode() == 1 && nightRider.active()) {
-    setStatusLed(0, 0, 0);
     nightRider.detach();
   }
 
@@ -707,13 +699,11 @@ void loop() {
       if (!activeSession) {
         inicializeConection();
         if (readMode() == 1) {
-          setStatusLed(255, 0, 0);
           nightRider.attach_ms(200, advanceNightRider);
           goto skip;
         } 
       }
     }
-    setStatusLed(0, 0, 0);
   }
   skip:
   if (millis() > interuptTimestamp && interuptFlag) {
@@ -748,28 +738,25 @@ void loop() {
   }
   webSocket.loop();
 
-  //Serial.println(digitalRead(D6);
 }
 
 ICACHE_RAM_ATTR void checkButton() {
+  //int timeBettwen = 500;
   if (!readButtonMode()) { return; }
   if (digitalRead(D1)) {
+    //timeBettwen = millis() - pressTime;
     pressTime = millis();
     return;
   }
   pressTime = millis() - pressTime;
-  if (pressTime > 5000 && readWifiTouch()) {
-    setWiFiMode(!readWiFiMode());
-    if (readBeepSetting()) {
-      pinMode(D5, OUTPUT);
-      tone(D5, 783, 1000);
-    }
-    tone(D5, 1600, 200);
-    delay(1000);
-    tone(D5, 1600, 200);
-    ESP.restart();
-    return;
-  }
+  /*if(timeBettwen < 300) {
+    int mode = readMode() - 1;
+    if (mode < 0) { mode = 7; }
+    changeMode(mode);
+    writeBrightnessToggle(!readBrightnessToggle());
+    setBrightness();
+    Serial.println("double");
+  }*/
   if (pressTime > 1500) {
     changeMode(0);
     if (readBeepSetting()) {
@@ -975,10 +962,7 @@ bool procesData(String result) {
   delete splitterg;
   return true;
 }
-void setStatusLed(int r, int g, int b) {
-  statusLed.setPixelColor(0, statusLed.Color(r, g, b));
-  statusLed.show();
-}
+
 
 void deobfuscateString(String &str) {
   int len = str.length();
@@ -990,7 +974,7 @@ void deobfuscateString(String &str) {
 
 void changeMode(int mode) {
 
-  if (mode != 1) { nightRider.detach(); setStatusLed(0, 0, 0);}
+  if (mode != 1) { nightRider.detach(); }
   writeMode(mode);
   if (mode == 0) { off(); }
   if (mode == 1) {
@@ -1168,6 +1152,11 @@ void fill(Color c) {
   strip.show();
 }
 
+void fill(int r, int g, int b) {
+  strip.fill(strip.Color(r, g, b), 0);
+  strip.show();
+}
+
 
 long ambiLastUpdate = 0;
 void ambient() {
@@ -1282,21 +1271,27 @@ void advanceNightRider() {
 }
 
 void inicializeConection() {
-  String id = LAMP_ID;
-  deobfuscateString(id);
-  String idk = "init;" + String(id) + ";" + getGameData();
-  Serial.println(idk);
-  webSocket.sendTXT(idk);
+    String id = LAMP_ID;
+    deobfuscateString(id);
+    String idk = "init;" + String(id) + ";" + getGameData();
+    Serial.println(idk);
+    if(webSocket.sendPing()) {
+      webSocket.sendTXT(idk);
+    }
+    
 }
 
 void setupWS(String s) {
   StringSplitter *splitter = new StringSplitter(s.c_str(), ':', 3);
+   Serial.println("ip");
+  Serial.println(splitter->getItemAtIndex(0).c_str());
   if(!Ping.ping(splitter->getItemAtIndex(0).c_str(),3)) {
+    Serial.println("unpinged");
     delete splitter;
     return;
   }
   delete splitter;
-
+Serial.println("pinged");
   webSocket.setSSLClientCertKey(ENDPOINT_CA_CERT, ENDPOINT_CA_KEY);
   if(s.indexOf(":") == -1) {
     webSocket.beginSSL(s.c_str(), 25569);
@@ -1308,7 +1303,7 @@ void setupWS(String s) {
   }
   
   webSocket.setReconnectInterval(20000);
-
+  
   webSocket.onEvent(webSocketEvent);
   webSocket.enableHeartbeat(20000, 60000, 3);
   webSocket.loop();

@@ -254,6 +254,13 @@ int readOverride() {
   return EEPROM.read(23);
 }
 
+void writeBrightnessToggle(int i) {
+  EEPROM.write(24, i);
+}
+
+int readBrightnessToggle() {
+  return EEPROM.read(24);
+}
 
 
 String apiCall(String url) {
